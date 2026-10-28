@@ -1,0 +1,49 @@
+name: Build Unsigned iOS IPA
+
+on:
+  workflow_dispatch: # Allows you to trigger the build manually by clicking a button
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Select Latest Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Create Unsigned Build Archive
+        run: |
+          # Finds your .xcodeproj folder automatically inside the repo folder
+          PROJECT_FILE=$(find . -name "*.xcodeproj" | head -n 1)
+          SCHEME_NAME=$(xcodebuild -list -project "$PROJECT_FILE" | awk '/Targets:/,/^$/' | sed -n '2p' | xargs)
+          
+          echo "Building Scheme: $SCHEME_NAME using $PROJECT_FILE"
+          
+          # Compiles the app bundle without requiring Apple developer signing certificates
+          xcodebuild archive \
+            -project "$PROJECT_FILE" \
+            -scheme "$SCHEME_NAME" \
+            -archivePath build/App.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER=""
+
+      - name: Construct IPA Package
+        run: |
+          # Creates the payload folder structure required for iOS sideloading apps
+          mkdir -p build/Payload
+          cp -r build/App.xcarchive/Products/Applications/*.app build/Payload/
+          cd build
+          zip -r App.ipa Payload/
+
+      - name: Upload IPA Output
+        uses: actions/artifacts@v4
+        with:
+          name: ios-unsigned-app
+          path: build/App.ipa
